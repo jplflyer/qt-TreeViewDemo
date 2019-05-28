@@ -17,7 +17,8 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-private slots:
+public slots:
+    void updateData();
     void on_actionChange_Data_triggered();
 
 private:

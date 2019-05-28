@@ -1,6 +1,8 @@
 # Qt Tree View Tutorial
 This is a tutorial on how to use a QTreeView with a custom model. I'm also going to do a few tricks with the toolbar. Note that for my purposes, I am only producing Mac desktop apps. I can't promise this works in other environments, but it should.
 
+As of May 28th, 2019, this demo is complete, but I am NOT a Qt expert, and there might be significant flaws. If you see some, please email me at jpl@showpage.org, or submit a pull request that addresses it.
+
 ## Assumptions
 I assume:
 
@@ -221,6 +223,19 @@ private:
 
 Standard C++. I did some data construction just to populate some random data.
 
+## Something Very Annoying
+Okay, now I'm going to say something very, very annoying about your data. You must be able from a raw pointer be able to identify what type of data is and navigate to the parent. This can be done in a few ways.
+
+If your entire tree consists of homogenous data (like a File entry from the file system), then the data type is fixed, and then you only need a pointer to the parent directory for each file. That makes it easy.
+
+My example data is NOT homogenous. I have 3 different classes. At various points in some of the methods, all I have is a pointer, and this isn't Java, so I can't query the object to see what type it is. So I can do a few things.
+
+1. You can subclass from a common type, and have that type know the Type. This is what I did.
+2. You can write a wrapper class that holds all the data. For instance, in addition to your normal data, you would create a bunch of Node objects that has a distinct pointer to each type of data you might have, as well as a Parent Node pointer.
+3. You could probably create some sort of map based on the pointer that tells you the datatype and parent.
+
+You'll see that my data did a common subclass. I could have done it other ways, but they are ugly.
+
 # Create Your Model
 You are going to need a model. This is the trickiest part of all of this. The model is the interface between your data (which can be in whatever form you like -- C++ stuff) and the actual GUI. So the model is very specific to Qt.
 
@@ -322,42 +337,42 @@ It then gets called recursively for each of those rows, and for the rows they al
 There are better ways to code this as you start nesting, but this works.
 ```
 int MyDataModel::rowCount(const QModelIndex &parent) const {
-    if (parent.column() > 0) {
-        return 0;
-    }
-    // If the parent isn't valid, this is the number of immediate children of the
-    // root, which for our data model is the count of TopData objects in our vector. Easy.
-    if (!parent.isValid()) {
-        int retVal = static_cast<int>(myData.size());
-        return retVal;
+    int retVal = 0;
+
+    if (parent.column() <= 0) {
+        // If the parent isn't valid, this is the number of immediate children of the
+        // root, which for our data model is the count of TopData objects in our vector. Easy.
+        if (!parent.isValid()) {
+            retVal = static_cast<int>(myData.size());
+        }
+
+        // At this point, we're working on drill downs. We can be for:
+        // -A TopData Row -- our parent is the root.
+        // -A MiddleData row
+        // -A ChildData row.
+        //
+        // There's probably a more clever way to write this using lambdas or something, but this works.
+
+        else if (!parent.parent().isValid()) {
+            // Our parent is the root (which is handled above, so we're a TopData, and
+            // we just return the number of children.
+            TopData *td = myData.at(parent.row());
+            retVal = static_cast<int>(td->middleData.size());
+        }
+
+        // This is a little gross.
+        else if (!parent.parent().parent().isValid()) {
+            // We're a MiddleData.
+            TopData *td = myData.at(parent.parent().row());
+            MiddleData *md = td->middleData.at(parent.row());
+            retVal = static_cast<int>(md->children.size());
+        }
     }
 
-    // At this point, we're working on drill downs. We can be for:
-    // -A TopData Row -- our parent is the root.
-    // -A MiddleData row
-    // -A ChildData row.
-    //
-    // There's probably a more clever way to write this using lambdas or something, but this works.
-
-    if (!parent.parent().isValid()) {
-        // Our parent is the root (which is handled above, so we're a TopData, and
-        // we just return the number of children.
-        TopData *td = myData.at(parent.row());
-        return static_cast<int>(td->middleData.size());
-    }
-
-    // This is a little gross.
-    if (!parent.parent().parent().isValid()) {
-        // We're a MiddleData.
-        TopData *td = myData.at(parent.parent().row());
-        MiddleData *md = td->middleData.at(parent.row());
-        return static_cast<int>(md->children.size());
-    }
-
-    // Fall through and we're a ChildData. We have no children past us.
-    return 0;
+    return retVal;
 }
 ```
+
 ## hasChildren()
 ```
 /**
@@ -388,6 +403,188 @@ bool MyDataModel::hasChildren(const QModelIndex &index) const {
 ```
 Again, the code is a little gross. You could make this smarter and not display open dialogs for any rows that have no child data, but I decided to just pay attention to what structure I have.
 
+## data()
+
+```
+QVariant MyDataModel::data(const QModelIndex &index, int role) const {
+    QVariant retVal;
+
+    int row = index.row();
+    int column = index.column();
+    if (role == Qt::DisplayRole && index.isValid() && row >= 0 && column >= 0) {
+        BaseData *baseData = static_cast<BaseData *>(index.internalPointer());
+        if (baseData != nullptr) {
+            switch (baseData->type) {
+                case BaseData::Type::CHILD: {
+                    ChildData *childData = static_cast<ChildData *>(baseData);
+                    switch(column) {
+                        case COLUMN_NAME: retVal = QString::fromStdString(childData->name); break;
+                        case COLUMN_AGE: retVal = childData->age; break;
+                    }
+                    break;
+                }
+...
+            }
+        }
+    }
+    return retVal;
+}
+```
+
+This works because the QModelIndex will have a pointer to the object. However, the next two methods are frustrating.
+
+## index()
+The index() method takes the row and column as well as the parent index object. Note that the parent can be the invisible root, at which point it will be invalid.
+
+The first if-statement may not be necessary. I trapped it to be careful. The second if against parent.isValid() checks if the parent is the invisible root. If so, then we're a top-level object (TopData) and we can directly dereference our array, as you see in the code.
+
+It is absolutely critical that createIndex receive a pointer to our object. And you'll see that we're about to use it.
+
+If we're not a top level, then we're a child. We grab that internal pointer that was passed to createIndex when our TopData object was created. That if-statement you see after grabbing baseData was put in while I was debugging problems. It's not necessary.
+
+We then look at the type of object we're pointing to so that we know how to find the child. Other than that, the code is pretty obvious.
+```
+/**
+ * This creates a QModelIndex for a particular cell. Our internal data points to an IndexData.
+ */
+QModelIndex MyDataModel::index ( int row, int column, const QModelIndex &parent) const {
+    if (row < 0 || column < 0) {
+        return QModelIndex();
+    }
+
+    // If this is top level...
+    if (!parent.isValid()) {
+        if (row >= static_cast<int>(myData.size()) ) {
+            return QModelIndex();
+        }
+        TopData * topData = myData.at(row);
+        return createIndex(row, column, topData);
+    }
+
+    // As the parent is valid, we can use his internalPointer.
+    BaseData * baseData = static_cast<BaseData *>(parent.internalPointer());
+    if (baseData == nullptr) {
+        cout << "We have a legitimate parent, but his internalPointer is null!" << endl;
+        exit(0);
+    }
+
+    // The parent can either be a TopData or MiddleData.
+    void *ptr = nullptr;
+    if (baseData->type == BaseData::Type::TOP) {
+        TopData *td = static_cast<TopData *>(baseData);
+        ptr = td->middleData.at(row);
+    }
+    else if (baseData->type == BaseData::Type::MIDDLE) {
+        MiddleData *md = static_cast<MiddleData *>(baseData);
+        ptr = md->children.at(row);
+    }
+
+    return createIndex(row, column, ptr);
+}
+```
+
+## parent()
+This one annoys the crap out of me. It's a pain in the ass. Here's the code. Explanation below.
+
+```
+QModelIndex MyDataModel::parent(const QModelIndex& index) const {
+    QModelIndex retVal;
+    if (!index.isValid()) {
+        return retVal;
+    }
+
+    BaseData * baseData = static_cast<BaseData *>(index.internalPointer());
+    if (baseData == nullptr) {
+        return retVal;
+    }
+
+    BaseData *parent = baseData->parent;
+    if (parent == nullptr) {
+        // No parent means it's the root.
+        return retVal;
+    }
+
+    int loc = -1;
+    if (parent->type == BaseData::Type::TOP) {
+        loc = myData.indexOf(static_cast<TopData *>(parent));
+    }
+    else if (parent->type == BaseData::Type::MIDDLE) {
+        MiddleData *middleParent = static_cast<MiddleData *>(parent);
+        TopData *topData = static_cast<TopData *>(middleParent->parent);
+        loc = topData->middleData.indexOf(middleParent);
+    }
+
+    return createIndex(loc, 0, parent);
+}
+```
+
+This is stupid. Really stupid. I *think* the internals call this code when you call index.parent(), though, which is insane. It should keep them, but I don't think it does. So I think these are getting created all the time. Yuck.
+
+Anyway...
+
+We need to return a QModelIndex for our PARENT. This is why internalData must be set, and why we must know the data type and how to get to our parent.
+
+After that, the code is kind of easy.
+
 # Tie Your Model To Your View
+MainWindow.h includes the data model include and then does this:
+
+```
+MyDataModel * model;
+```
+
+That part is easy. So is this part:
+
+```
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),
+    ui(new Ui::MainWindow),
+    model(new MyDataModel(nullptr, &topData))
+{
+  ui->setupUi(this);
+  ui->treeView->setModel(model);
+  ...
+  // Columns are allocated evenly, except the last which by default gets the
+  // stretch. This lets me make two of them wider.
+  ui->treeView->setColumnWidth(0, ui->treeView->columnWidth(0) * 1.5);
+  ui->treeView->setColumnWidth(2, ui->treeView->columnWidth(2) * 2);
+}
+```
+
+That's all it takes, once your model is set up. You create the model, feed it some sample data however you want, and then tell the treeView to use it.
 
 # Handle Edits
+I added a timer event to update data:
+
+```
+QTimer::singleShot(5000, this, SLOT(updateData()));
+```
+
+That method simply does this:
+
+```
+void MainWindow::updateData() {
+    on_actionChange_Data_triggered();
+    QTimer::singleShot(5000, this, SLOT(updateData()));
+}
+
+void MainWindow::on_actionChange_Data_triggered()
+{
+    TopData * td = topData.at(0);
+    MiddleData * md = td->middleData.at(0);
+    md->name = md->name + ".";
+
+    md->createChildData("Update", 10);
+
+    ui->treeView->dataChanged(QModelIndex(), QModelIndex());
+    model->layoutChanged();
+}
+```
+
+This is the same trigger that happens if you hit the icon in the toolbar. What this does...
+
+The first few lines munge the data. I append dots to the name of a middle data line and then I add another child to it.
+
+The final two lines tell the view that the data has changed PLUS get the model to emit the "layout changed" signal, which is necessary if you add or remove rows. Without layoutChanged(), the view saw the dots being added, but didn't see the new row being added.
+
+It turns out that if you do layoutChanged(), you don't need the dataChanged() call. So in my checked-in code, that call is commented out.

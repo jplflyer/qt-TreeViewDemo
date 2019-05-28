@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include <QTimer>
+
 #include "MainWindow.h"
 #include "ui_MainWindow.h"
 
@@ -38,8 +40,11 @@ MainWindow::MainWindow(QWidget *parent) :
     md2a->createChildData("Until", 18);
 
     // Columns are allocated evenly, except the last which by default gets the stretch. This lets me make two of them wider.
-    ui->treeView->setColumnWidth(0, ui->treeView->columnWidth(0) * 1.5);
+    ui->treeView->setColumnWidth(0, ui->treeView->columnWidth(0) * 2);
     ui->treeView->setColumnWidth(2, ui->treeView->columnWidth(2) * 2);
+
+    // Set up to automatically force a data change.
+    QTimer::singleShot(5000, this, SLOT(updateData()));
 }
 
 MainWindow::~MainWindow()
@@ -47,7 +52,25 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
+/**
+ * This does a data update then tells the form.
+ */
 void MainWindow::on_actionChange_Data_triggered()
 {
-    cout << "Triggered!" << endl;
+    TopData * td = topData.at(0);
+    MiddleData * md = td->middleData.at(0);
+    md->name = md->name + ".";
+
+    md->createChildData("Update", 10);
+
+    //ui->treeView->dataChanged(QModelIndex(), QModelIndex());
+    model->layoutChanged();
+}
+
+/**
+ * Timer version of automatically changing the data.
+ */
+void MainWindow::updateData() {
+    on_actionChange_Data_triggered();
+    QTimer::singleShot(5000, this, SLOT(updateData()));
 }
