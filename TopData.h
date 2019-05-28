@@ -5,7 +5,18 @@
 
 #include "PointerVector.h"
 
-class ChildData
+class BaseData {
+public:
+    enum class Type { TOP, MIDDLE, CHILD };
+    Type type;
+    BaseData *parent;
+
+    BaseData(Type _type);
+
+    std::string typeAsString() const;
+};
+
+class ChildData: public BaseData
 {
 public:
     ChildData();
@@ -15,7 +26,7 @@ public:
     int age;
 };
 
-class MiddleData
+class MiddleData: public BaseData
 {
 public:
     MiddleData();
@@ -28,12 +39,13 @@ public:
 
     ChildData *createChildData(const std::string &_name, int _age) {
         ChildData *cd = new ChildData(_name, _age);
+        cd->parent = this;
         children.push_back(cd);
         return cd;
     }
 };
 
-class TopData
+class TopData: public BaseData
 {
 public:
     TopData();
@@ -46,6 +58,7 @@ public:
 
     MiddleData *createMiddleData(const std::string &_name, const std::string &_address) {
         MiddleData *md = new MiddleData(_name, _address);
+        md->parent = this;
         middleData.push_back(md);
         return md;
     }

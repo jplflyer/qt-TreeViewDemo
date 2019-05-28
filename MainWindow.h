@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include "TopData.h"
+#include "MyDataModel.h"
 
 namespace Ui {
 class MainWindow;
@@ -23,6 +24,7 @@ private:
     Ui::MainWindow *ui;
 
     PointerVector<TopData> topData;
+    MyDataModel * model;
 };
 
 #endif // MAINWINDOW_H

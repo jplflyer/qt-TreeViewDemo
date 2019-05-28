@@ -25,12 +25,14 @@ DEFINES += QT_DEPRECATED_WARNINGS
 CONFIG += c++11
 
 SOURCES += \
+        MyDataModel.cpp \
         TopData.cpp \
         main.cpp \
         MainWindow.cpp
 
 HEADERS += \
         MainWindow.h \
+        MyDataModel.h \
         PointerVector.h \
         TopData.h
 

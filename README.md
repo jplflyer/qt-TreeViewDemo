@@ -221,8 +221,172 @@ private:
 
 Standard C++. I did some data construction just to populate some random data.
 
-
 # Create Your Model
+You are going to need a model. This is the trickiest part of all of this. The model is the interface between your data (which can be in whatever form you like -- C++ stuff) and the actual GUI. So the model is very specific to Qt.
+
+In your project, File -> New File -> C++ Class. I called my MyDataModel. Here's MyDataModel.h.
+
+```
+#ifndef MYDATAMODEL_H
+#define MYDATAMODEL_H
+
+#include <QAbstractItemModel>
+#include "TopData.h"
+
+/**
+ * This is the model used to display our data.
+ */
+class MyDataModel: public QAbstractItemModel
+{
+    Q_OBJECT
+private:
+    PointerVector<TopData> & myData;
+
+public:
+    MyDataModel(QObject *parent, PointerVector<TopData> *vec);
+
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    bool hasChildren(const QModelIndex &) const override;
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+
+    QModelIndex index ( int row, int column, const QModelIndex& parent = QModelIndex()) const override;
+    QModelIndex parent ( const QModelIndex& index ) const override;
+};
+
+#endif // MYDATAMODEL_H
+```
+
+Notice that I inherit from QAbstractItemModel. Do NOT inherit from QAbstractTableModel. That is going to get you into trouble. Notice the Q_OBJECT line at the top of the class definition.
+
+I do a little standard C++ stuff to keep a reference to my data.
+
+And then I define 7 methods.
+
+## Constructor
+Standard C++ stuff:
+
+```
+MyDataModel::MyDataModel(QObject *parent, PointerVector<TopData> *vec)
+    : QAbstractItemModel(parent), myData(*vec)
+{
+}
+```
+
+## columnCount()
+Let's show the easy one:
+
+```
+#define MAX_COLUMNS 4
+
+int MyDataModel::columnCount(const QModelIndex &) const {
+    return MAX_COLUMNS;
+}
+```
+
+Trivial.
+
+## Header Information is also pretty trivial:
+
+```
+#define COLUMN_NAME 0
+#define COLUMN_STATUS 1
+#define COLUMN_ADDRESS 2
+#define COLUMN_AGE 3
+
+QVariant MyDataModel::headerData(int section, Qt::Orientation, int role) const {
+    QVariant retVal;
+    if (role == Qt::DisplayRole){
+        switch (section) {
+            case COLUMN_NAME: retVal = "Name"; break;
+            case COLUMN_STATUS: retVal = "Status"; break;
+            case COLUMN_ADDRESS: retVal = "Address"; break;
+            case COLUMN_AGE: retVal = "Age"; break;
+            default: retVal = "Unknown"; break;
+        }
+    }
+    return retVal;
+}
+```
+
+You need that if statement. Role can be passed in for other things I haven't learned about yet, but this works for this example.
+
+## rowCount()
+This method isn't too horrible, although due to our structure, it's a little gross in places. But it's not bad.
+
+Basically you give the number of children based on this parent. I think the comments here explain what is happening. This method is going to be called once with parent.isValid() set false, and you return the count of your top level data. In my case, this is the size of my TopData vector.
+
+It then gets called recursively for each of those rows, and for the rows they also reference. In this case, you have a parent, and the parent could have a parent, and that can continue as deeply as you nest.
+
+There are better ways to code this as you start nesting, but this works.
+```
+int MyDataModel::rowCount(const QModelIndex &parent) const {
+    if (parent.column() > 0) {
+        return 0;
+    }
+    // If the parent isn't valid, this is the number of immediate children of the
+    // root, which for our data model is the count of TopData objects in our vector. Easy.
+    if (!parent.isValid()) {
+        int retVal = static_cast<int>(myData.size());
+        return retVal;
+    }
+
+    // At this point, we're working on drill downs. We can be for:
+    // -A TopData Row -- our parent is the root.
+    // -A MiddleData row
+    // -A ChildData row.
+    //
+    // There's probably a more clever way to write this using lambdas or something, but this works.
+
+    if (!parent.parent().isValid()) {
+        // Our parent is the root (which is handled above, so we're a TopData, and
+        // we just return the number of children.
+        TopData *td = myData.at(parent.row());
+        return static_cast<int>(td->middleData.size());
+    }
+
+    // This is a little gross.
+    if (!parent.parent().parent().isValid()) {
+        // We're a MiddleData.
+        TopData *td = myData.at(parent.parent().row());
+        MiddleData *md = td->middleData.at(parent.row());
+        return static_cast<int>(md->children.size());
+    }
+
+    // Fall through and we're a ChildData. We have no children past us.
+    return 0;
+}
+```
+## hasChildren()
+```
+/**
+ * Does this node have children?
+ */
+bool MyDataModel::hasChildren(const QModelIndex &index) const {
+    bool retVal = true;
+
+    if (!index.isValid()) {
+        // We're for the invisible root, which of course has children.
+    }
+    else if (!index.parent().isValid()) {
+        // We don't have a parent, so we're a TopData object. We can retrieve the object and
+        // return false if we have no middle data, but I'm just going to return true.
+    }
+    else if (!index.parent().parent().isValid()) {
+        // Like rowCount(), this is getting gross, but it's just a demo.
+        // In this case, we're a middle data. We have a parent, but no grandparent.
+        // We can return true.
+    }
+    else {
+        // We're a ChildData.
+        retVal = false;
+    }
+
+    return retVal;
+}
+```
+Again, the code is a little gross. You could make this smarter and not display open dialogs for any rows that have no child data, but I decided to just pay attention to what structure I have.
 
 # Tie Your Model To Your View
 
